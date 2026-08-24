@@ -106,7 +106,7 @@ $(KERNEL_ELF): $(KERNEL_ASM_OBJ) $(KERNEL_C_OBJS)
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	@echo "  [OBJCOPY] $@"
-	objcopy -O binary $< $@
+	i686-elf-objcopy -O binary $< $@
 
 # ---------------------------------------------------------------------------
 # Disk image: 1.44 MB floppy (boot sector + kernel)
@@ -121,7 +121,7 @@ $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
 # ---------------------------------------------------------------------------
 # Run in QEMU
 # ---------------------------------------------------------------------------
-QEMU      := qemu-system-i386
+QEMU      := qemu-system-i386 -display cocoa,zoom-to-fit=on
 QEMUFLAGS := -drive format=raw,file=$(OS_IMAGE) -m 32M
 
 run: $(OS_IMAGE)
