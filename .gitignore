@@ -3,3 +3,4 @@ seng21213.img
 *.o
 *.bin
 *.elf
+.DS_Store
