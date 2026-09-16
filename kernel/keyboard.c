@@ -12,11 +12,11 @@
 #define KB_STATUS_OBF  0x01    /* Output Buffer Full bit */
 
 /* Inline port I/O */
-static inline uint8_t inb(uint16_t port) {
-    uint8_t val;
-    __asm__ __volatile__("inb %1, %0" : "=a"(val) : "Nd"(port));
-    return val;
-}
+// static inline uint8_t inb(uint16_t port) {
+//     uint8_t val;
+//     __asm__ __volatile__("inb %1, %0" : "=a"(val) : "Nd"(port));
+//     return val;
+// }
 
 /* ---------------------------------------------------------------------------
  * Scancode Set 1 → ASCII translation table (unshifted)
@@ -46,7 +46,7 @@ static const char sc_ascii_shift[128] = {
 static bool shift_held = false;
 
 void kb_init(void) {
-    /* Flush any stale data in the keyboard buffer */
+    
     while (inb(KB_STATUS_PORT) & KB_STATUS_OBF) {
         inb(KB_DATA_PORT);
     }
@@ -55,21 +55,20 @@ void kb_init(void) {
 char kb_getchar(void) {
     uint8_t sc;
     while (true) {
-        /* Wait until output buffer is full (key available) */
+        
         while (!(inb(KB_STATUS_PORT) & KB_STATUS_OBF));
         sc = inb(KB_DATA_PORT);
 
         if (sc & 0x80) {
-            /* Key release: bit 7 set, clear modifier state */
+           
             uint8_t release = sc & 0x7F;
             if (release == 0x2A || release == 0x36) shift_held = false;
             continue;
         }
 
-        /* Key press */
+      
         if (sc == 0x2A || sc == 0x36) { shift_held = true; continue; }
 
-        /* Caps lock / ctrl / alt – ignored in Stage 0 */
 
         char c = shift_held ? sc_ascii_shift[sc] : sc_ascii[sc];
         if (c) return c;
