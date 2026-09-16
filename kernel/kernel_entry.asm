@@ -19,3 +19,24 @@ _start:
 .halt:
     hlt
     jmp .halt
+
+; ---------------------------------------------------------------------------
+; Interrupt Handling (Added for Stage 1)
+; ---------------------------------------------------------------------------
+[GLOBAL idt_load]
+[GLOBAL irq0_handler]
+[EXTERN scheduler_tick] ; This is your C function!
+
+; Loads the IDT pointer into the CPU and enables interrupts
+idt_load:
+    mov eax, [esp + 4]
+    lidt [eax]
+    sti                 ; STI sets the Interrupt Flag (enables interrupts)
+    ret
+
+; Catches the IRQ0 timer, saves state, and calls the scheduler
+irq0_handler:
+    pushad              ; Save all current registers
+    call scheduler_tick ; Jump into your C scheduler
+    popad               ; Restore all registers
+    iret                ; Return from interrupt

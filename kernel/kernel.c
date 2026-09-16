@@ -15,7 +15,7 @@
  *   Lecture 11  - Memory Management   →  pmm.h     / pmm.c / vmm.c
  *   Lecture 12  - File System         →  fs.h      / fs.c
  *
- * CODING CONVENTION
+ * CODING CONVENTIONx
  *   - Prefix kernel-internal functions with k_ (e.g. k_strcmp)
  *   - All driver APIs live in their own .h/.c pair
  *   - NEVER call malloc - use the PMM you build in Lecture 11
@@ -24,7 +24,10 @@
 #include "vga.h"
 #include "keyboard.h"
 #include "../include/types.h"
+#include "../include/process.h"
 
+extern void pit_init(void);
+extern void idt_init(void); 
 /* ---------------------------------------------------------------------------
  * Forward declarations of shell commands
  * --------------------------------------------------------------------------*/
@@ -33,6 +36,7 @@ static void cmd_clear(void);
 static void cmd_about(void);
 static void cmd_echo(const char *args);
 static void cmd_mem(void);
+static void cmd_ps(void);
 
 /* ---------------------------------------------------------------------------
  * Utility: minimal string helpers (no libc in a freestanding kernel!)
@@ -159,6 +163,25 @@ static void cmd_mem(void) {
                    VGA_YELLOW, VGA_BLACK);
 }
 
+static void cmd_ps(void) {
+    
+    vga_printf("PID   NAME        STATE       TICKS\n");
+    vga_puts("----  ----------  ----------  -----\n");
+    
+    for (int i = 0; i < MAX_PROCS; i++) {
+        if (proc_table[i].state == PROC_UNUSED) continue;
+        
+        const char *states[] = {"UNUSED", "READY", "RUNNING", "BLOCKED", "ZOMBIE"};
+        
+        
+        vga_printf("%d     %s        %s     %d\n",
+                   proc_table[i].pid, 
+                   proc_table[i].name,
+                   states[proc_table[i].state], 
+                   proc_table[i].ticks);
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Shell process
  * --------------------------------------------------------------------------*/
@@ -173,22 +196,20 @@ static void shell_run(void) {
         vga_puts_color(prompt, VGA_LIGHT_GREEN, VGA_BLACK);
         kb_readline(shell_buf, sizeof(shell_buf));
 
-        /* Trim leading whitespace */
         const char *cmd = k_ltrim(shell_buf);
         if (k_strlen(cmd) == 0) continue;
 
-        /* Dispatch */
         if (k_strcmp(cmd, "help")  == 0) { cmd_help();  continue; }
         if (k_strcmp(cmd, "clear") == 0) { cmd_clear(); continue; }
         if (k_strcmp(cmd, "about") == 0) { cmd_about(); continue; }
         if (k_strcmp(cmd, "mem")   == 0) { cmd_mem();   continue; }
+        if (k_strcmp(cmd, "ps")    == 0) { cmd_ps();    continue; }
 
         if (k_strncmp(cmd, "echo ", 5) == 0) {
             cmd_echo(k_ltrim(cmd + 5));
             continue;
         }
 
-        /* Milestone stubs */
         if (k_strcmp(cmd, "ps")      == 0 ||
             k_strcmp(cmd, "kill")    == 0 ||
             k_strcmp(cmd, "threads") == 0 ||
@@ -208,14 +229,54 @@ static void shell_run(void) {
 }
 
 /* ---------------------------------------------------------------------------
+ * Test Processes for Stage 1
+ * --------------------------------------------------------------------------*/
+void proc1(void) {
+    __asm__ volatile("sti"); 
+    while (true) {
+        
+    }
+}
+
+void proc2(void) {
+    __asm__ volatile("sti"); 
+    while (true) {
+        
+    }
+}
+
+/* ---------------------------------------------------------------------------
  * Kernel entry point - called from kernel_entry.asm
  * --------------------------------------------------------------------------*/
 void kernel_main(void) {
     vga_init();
     kb_init();
+
+    /* 0. Initialize the process table */
+    for (int i = 0; i < MAX_PROCS; i++) {
+        proc_table[i].state = 0; /* PROC_UNUSED */
+    }
+
+    current_proc = 0;
+    proc_table[0].pid = 0;
+    proc_table[0].state = PROC_RUNNING;
+    proc_table[0].ticks = 0;
+    
+    
+    proc_table[0].name[0] = 'i';
+    proc_table[0].name[1] = 'd';
+    proc_table[0].name[2] = 'l';
+    proc_table[0].name[3] = 'e';
+    proc_table[0].name[4] = '\0';
+
+
+    proc_create("proc1", proc1);
+    proc_create("proc2", proc2);
+
+    pit_init();
+    idt_init();
+
     print_splash();
     shell_run();
 
-    /* Should never reach here */
-    __asm__ __volatile__("hlt");
 }

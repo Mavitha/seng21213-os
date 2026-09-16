@@ -15,9 +15,9 @@ static int     cursor_col  = 0;
 static uint8_t cur_attr    = 0;   /* Current attribute byte */
 
 /* I/O port helpers (inline assembly) */
-static inline void outb(uint16_t port, uint8_t val) {
-    __asm__ __volatile__("outb %0, %1" : : "a"(val), "Nd"(port));
-}
+// static inline void outb(uint16_t port, uint8_t val) {
+//     __asm__ __volatile__("outb %0, %1" : : "a"(val), "Nd"(port));
+// }
 
 /* ---------------------------------------------------------------------------
  * Hardware cursor update via VGA CRTC registers (ports 0x3D4 / 0x3D5)
@@ -122,7 +122,7 @@ void vga_set_cursor(int row, int col) {
     update_hw_cursor();
 }
 
-/* Minimal vga_printf: supports %s, %c, %d, %u, %x */
+
 static void print_uint(uint32_t n, int base) {
     char buf[32];
     int  i = 0;
@@ -136,7 +136,7 @@ static void print_uint(uint32_t n, int base) {
 }
 
 void vga_printf(const char *fmt, ...) {
-    /* Minimal va_args via GCC __builtin_va_list */
+    
     __builtin_va_list args;
     __builtin_va_start(args, fmt);
 
@@ -162,23 +162,21 @@ void vga_printf(const char *fmt, ...) {
     __builtin_va_end(args);
 }
 
-/* Draw a box outline using IBM box-drawing characters (CP437) */
+
 void vga_draw_box(int row, int col, int height, int width, vga_color_t color) {
     uint8_t saved = cur_attr;
     vga_set_color(color, VGA_BLACK);
 
-    /* Corners */
     vga_write_cell(row,          col,         0xC9, cur_attr); /* ╔ */
     vga_write_cell(row,          col+width-1, 0xBB, cur_attr); /* ╗ */
     vga_write_cell(row+height-1, col,         0xC8, cur_attr); /* ╚ */
     vga_write_cell(row+height-1, col+width-1, 0xBC, cur_attr); /* ╝ */
 
-    /* Top / bottom edges */
     for (int c = col+1; c < col+width-1; c++) {
         vga_write_cell(row,          c, 0xCD, cur_attr); /* ═ */
         vga_write_cell(row+height-1, c, 0xCD, cur_attr);
     }
-    /* Left / right edges */
+  
     for (int r = row+1; r < row+height-1; r++) {
         vga_write_cell(r, col,         0xBA, cur_attr); /* ║ */
         vga_write_cell(r, col+width-1, 0xBA, cur_attr);
