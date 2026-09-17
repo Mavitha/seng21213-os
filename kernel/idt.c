@@ -63,14 +63,13 @@ void idt_init(void) {
     idtp.limit = (sizeof(struct idt_entry) * 256) - 1;
     idtp.base = (uint32_t)&idt;
 
-   
+  
     for (int i = 0; i < 256; i++) {
         idt_set_gate(i, 0, 0, 0);
     }
-
     
     idt_set_gate(32, (uint32_t)irq0_handler, 0x08, 0x8E);
 
-    /* Tell the CPU where the table is! */
+
     idt_load((uint32_t)&idtp);
 }
