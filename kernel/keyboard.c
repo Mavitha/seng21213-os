@@ -11,6 +11,9 @@
 #define KB_STATUS_PORT 0x64    /* Read status / write command */
 #define KB_STATUS_OBF  0x01    /* Output Buffer Full bit */
 
+extern void vga_scroll_up(void);
+extern void vga_scroll_down(void);
+
 /* Inline port I/O */
 // static inline uint8_t inb(uint16_t port) {
 //     uint8_t val;
@@ -66,9 +69,18 @@ char kb_getchar(void) {
             continue;
         }
 
-      
         if (sc == 0x2A || sc == 0x36) { shift_held = true; continue; }
 
+        /* --- SCROLL HOOKS --- */
+        if (sc == 0x49) { 
+            vga_scroll_up(); 
+            continue; 
+        }
+        if (sc == 0x51) { 
+            vga_scroll_down(); 
+            continue; 
+        }
+        /* -------------------- */
 
         char c = shift_held ? sc_ascii_shift[sc] : sc_ascii[sc];
         if (c) return c;
