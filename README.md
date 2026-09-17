@@ -10,10 +10,10 @@ To build the OS and launch it in the QEMU emulator:
 
 Bash
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   make clean && make run   `
+`   make clean && make run   `
 
 ## Features to Test
-* **VGA Scrollback Buffer:** Press **Page Up (Fn + Arrow Up) ** and **Page Down (Fn + Arrow Down) ** to scroll through the terminal history.
+* **VGA Scrollback Buffer:** Press **Page Up (Fn + Arrow Up)** and **Page Down (Fn + Arrow Down)** to scroll through the terminal history.
 * **Hierarchical RAM Disk:** A 1 MB in-memory block device featuring an inode-based file system. Includes isolated directories, a dynamic CWD shell prompt (`ksh:dir>`), and file creation.
 * **Thread Synchronization:** Run the `race`, `race_mutex`, and `prodcons` commands to test the kernel's scheduler, blocking mutexes, and counting semaphores.
 
