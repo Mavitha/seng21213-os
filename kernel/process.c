@@ -4,12 +4,12 @@ pcb_t proc_table[MAX_PROCS];
 int   current_proc = -1;
 uint32_t next_pid = 1;
 
-static void k_strcpy(char *dest, const char *src) {
-    while (*src) {
-        *dest++ = *src++;
-    }
-    *dest = '\0';
-}
+// static void k_strcpy(char *dest, const char *src) {
+//     while (*src) {
+//         *dest++ = *src++;
+//     }
+//     *dest = '\0';
+// }
 
 pcb_t* proc_create(const char *name, void (*entry)(void)) {
     pcb_t *p = 0;
