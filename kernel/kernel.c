@@ -29,6 +29,7 @@
 #include "../include/mutex.h"
 #include "../include/semaphore.h"
 #include "../include/pmm.h"
+#include "../include/fs.h"
 
 #define ITERS 100000
 #define BUF_SIZE 8
@@ -65,15 +66,15 @@ static int k_strcmp(const char *a, const char *b)
     return (uint8_t)*a - (uint8_t)*b;
 }
 
-static int k_strncmp(const char *a, const char *b, size_t n)
-{
-    while (n-- && *a && (*a == *b))
-    {
-        a++;
-        b++;
-    }
-    return n == (size_t)-1 ? 0 : (uint8_t)*a - (uint8_t)*b;
-}
+// static int k_strncmp(const char *a, const char *b, size_t n)
+// {
+//     while (n-- && *a && (*a == *b))
+//     {
+//         a++;
+//         b++;
+//     }
+//     return n == (size_t)-1 ? 0 : (uint8_t)*a - (uint8_t)*b;
+// }
 
 static size_t k_strlen(const char *s)
 {
@@ -236,9 +237,14 @@ static void cmd_help(void)
     vga_puts("  race_mutex - [L10] Run mutex test\n");
     vga_puts("  prodcons - [L10] Run producer-consumer test\n");
     vga_puts("  free    - [L11] Show free memory\n");
-    vga_puts_color("\n  Milestones (to implement):\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  ls      - [L12] List files\n");
-    vga_puts("  cat     - [L12] Print file contents\n\n");
+    vga_puts("  cat     - [L12] Print file contents\n");
+    vga_puts("  write   - [L12] Write to a file\n");
+    vga_puts("  rm      - [L12] Remove a file\n");
+    vga_puts("  touch   - [L12] Create a new file\n");
+    vga_puts("  mkdir   - [L12] Create a new directory\n");
+    vga_puts("  cd      - [L12] Change current directory\n");
+    vga_puts("  pwd     - [L12] Print working directory\n");
 }
 
 static void cmd_clear(void)
@@ -422,12 +428,147 @@ static void cmd_meminfo(void)
 
     vga_printf("Free: %d KB  Used: %d KB  Total: %d KB\n", free_kb, used_kb, total_kb);
 }
+static void cmd_ls(int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    inode_t inodes[MAX_INODES];
+    int n = fs_ls(inodes, MAX_INODES);
+
+    vga_puts("TYPE   NAME                     SIZE\n");
+    vga_puts("------ ------------------------ --------\n");
+
+    for (int i = 0; i < n; i++)
+    {
+        /* Print the Type tag */
+        const char *type_str = (inodes[i].type == 2) ? "<DIR>" : "FILE ";
+        vga_printf("%s  %s", type_str, inodes[i].name);
+
+        int len = k_strlen(inodes[i].name);
+        for (int j = len; j < 25; j++)
+        {
+            vga_putchar(' ');
+        }
+
+        vga_printf("%u\n", inodes[i].size);
+    }
+    vga_printf("%d item(s)\n", n);
+}
+
+static void cmd_write(int argc, char *argv[])
+{
+    if (argc < 3)
+    {
+        vga_puts("Usage: write <file> <text>\n");
+        return;
+    }
+    int fd = fs_open(argv[1], O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0)
+    {
+        vga_puts("Cannot open file\n");
+        return;
+    }
+    for (int i = 2; i < argc; i++)
+    {
+        fs_write(fd, argv[i], k_strlen(argv[i]));
+        if (i < argc - 1)
+            fs_write(fd, " ", 1);
+    }
+    fs_close(fd);
+}
+
+static void cmd_touch(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        vga_puts("Usage: touch <file>\n");
+        return;
+    }
+    int fd = fs_open(argv[1], O_RDONLY | O_CREAT);
+    if (fd >= 0)
+        fs_close(fd);
+}
+
+static void cmd_cat(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        vga_puts("Usage: cat <file>\n");
+        return;
+    }
+    int fd = fs_open(argv[1], O_RDONLY);
+    if (fd < 0)
+    {
+        vga_puts("File not found.\n");
+        return;
+    }
+
+    char buf[64];
+    int bytes;
+    while ((bytes = fs_read(fd, buf, sizeof(buf) - 1)) > 0)
+    {
+        buf[bytes] = '\0';
+        vga_puts(buf);
+    }
+    vga_putchar('\n');
+    fs_close(fd);
+}
+
+static void cmd_rm(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        vga_puts("Usage: rm <file>\n");
+        return;
+    }
+    if (fs_unlink(argv[1]) == 0)
+        vga_puts("File deleted.\n");
+    else
+        vga_puts("File not found.\n");
+}
+
+static void cmd_pwd(int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+    vga_puts(fs_get_cwd());
+    vga_putchar('\n');
+}
+
+static void cmd_mkdir(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        vga_puts("Usage: mkdir <dir>\n");
+        return;
+    }
+    if (fs_mkdir(argv[1]) == 0)
+        vga_puts("Directory created.\n");
+    else
+        vga_puts("Failed to create directory.\n");
+}
+
+static void cmd_cd(int argc, char *argv[])
+{
+    if (argc < 2 || k_strcmp(argv[1], "/") == 0)
+    {
+        fs_set_cwd("/");
+        return;
+    }
+    if (fs_is_dir(argv[1]))
+    {
+        fs_set_cwd(argv[1]);
+    }
+    else
+    {
+        vga_puts("cd: no such directory\n");
+    }
+}
 
 /* ---------------------------------------------------------------------------
  * Shell process
  * --------------------------------------------------------------------------*/
 static char shell_buf[256];
-static char prompt[] = "\n  ksh> ";
 
 static void shell_run(void)
 {
@@ -436,87 +577,150 @@ static void shell_run(void)
 
     while (true)
     {
-        vga_puts_color(prompt, VGA_LIGHT_GREEN, VGA_BLACK);
+
+        vga_puts_color("ksh:", VGA_LIGHT_GREEN, VGA_BLACK);
+        vga_puts_color(fs_get_cwd(), VGA_LIGHT_BLUE, VGA_BLACK);
+        vga_puts_color("> ", VGA_LIGHT_GREEN, VGA_BLACK);
         kb_readline(shell_buf, sizeof(shell_buf));
 
-        const char *cmd = k_ltrim(shell_buf);
-        if (k_strlen(cmd) == 0)
+        char *raw_cmd = (char *)k_ltrim(shell_buf);
+        if (k_strlen(raw_cmd) == 0)
             continue;
 
-        if (k_strcmp(cmd, "help") == 0)
+        char cmd_backup[128];
+        char *dst = cmd_backup;
+        const char *src = raw_cmd;
+        while ((*dst++ = *src++))
+            ;
+
+        char *argv[16];
+        int argc = 0;
+        char *p = raw_cmd;
+
+        while (*p)
+        {
+            while (*p == ' ')
+                *p++ = '\0';
+            if (*p)
+            {
+                if (argc < 16)
+                    argv[argc++] = p;
+                while (*p && *p != ' ')
+                    p++;
+            }
+        }
+
+        if (argc == 0)
+            continue;
+
+        if (k_strcmp(argv[0], "help") == 0)
         {
             cmd_help();
             continue;
         }
-        if (k_strcmp(cmd, "clear") == 0)
+        if (k_strcmp(argv[0], "clear") == 0)
         {
             cmd_clear();
             continue;
         }
-        if (k_strcmp(cmd, "about") == 0)
+        if (k_strcmp(argv[0], "about") == 0)
         {
             cmd_about();
             continue;
         }
-        if (k_strcmp(cmd, "mem") == 0)
+        if (k_strcmp(argv[0], "mem") == 0)
         {
             cmd_mem();
             continue;
         }
-        if (k_strcmp(cmd, "ps") == 0)
+        if (k_strcmp(argv[0], "ps") == 0)
         {
             cmd_ps();
             continue;
         }
-        if (k_strcmp(cmd, "race") == 0)
+        if (k_strcmp(argv[0], "race") == 0)
         {
             cmd_race();
             continue;
         }
-        if (k_strcmp(cmd, "race_mutex") == 0)
+        if (k_strcmp(argv[0], "race_mutex") == 0)
         {
             cmd_race_mutex();
             continue;
         }
-        if (k_strcmp(cmd, "prodcons") == 0)
+        if (k_strcmp(argv[0], "prodcons") == 0)
         {
             cmd_prodcons();
             continue;
         }
-
-        if (k_strncmp(cmd, "echo ", 5) == 0)
-        {
-            cmd_echo(k_ltrim(cmd + 5));
-            continue;
-        }
-        if (cmd[0] == 'k' && cmd[1] == 'i' && cmd[2] == 'l' && cmd[3] == 'l' && cmd[4] == ' ')
-        {
-            cmd_kill(cmd);
-            continue;
-        }
-
-        if (k_strcmp(cmd, "threads") == 0)
+        if (k_strcmp(argv[0], "threads") == 0)
         {
             cmd_threads();
             continue;
         }
-        if (k_strcmp(cmd, "meminfo") == 0 || k_strcmp(cmd, "free") == 0)
+        if (k_strcmp(argv[0], "meminfo") == 0 || k_strcmp(argv[0], "free") == 0)
         {
             cmd_meminfo();
             continue;
         }
 
-        if (k_strcmp(cmd, "ls") == 0 ||
-            k_strcmp(cmd, "cat") == 0)
+        if (k_strcmp(argv[0], "ls") == 0)
         {
-            vga_puts_color("  [TODO] This command is not yet implemented.\n",
-                           VGA_YELLOW, VGA_BLACK);
-            vga_puts("  Implement it as part of your lecture assignment.\n");
+            cmd_ls(argc, argv);
+            continue;
+        }
+        if (k_strcmp(argv[0], "touch") == 0)
+        {
+            cmd_touch(argc, argv);
+            continue;
+        }
+        if (k_strcmp(argv[0], "write") == 0)
+        {
+            cmd_write(argc, argv);
+            continue;
+        }
+        if (k_strcmp(argv[0], "cat") == 0)
+        {
+            cmd_cat(argc, argv);
+            continue;
+        }
+        if (k_strcmp(argv[0], "rm") == 0)
+        {
+            cmd_rm(argc, argv);
+            continue;
+        }
+
+        if (k_strcmp(argv[0], "echo") == 0)
+        {
+            if (k_strlen(cmd_backup) > 5)
+                cmd_echo(cmd_backup + 5);
+            else
+                vga_puts("\n");
+            continue;
+        }
+        if (k_strcmp(argv[0], "kill") == 0)
+        {
+            cmd_kill(cmd_backup);
+            continue;
+        }
+        if (k_strcmp(argv[0], "pwd") == 0)
+        {
+            cmd_pwd(argc, argv);
+            continue;
+        }
+        if (k_strcmp(argv[0], "mkdir") == 0)
+        {
+            cmd_mkdir(argc, argv);
+            continue;
+        }
+        if (k_strcmp(argv[0], "cd") == 0)
+        {
+            cmd_cd(argc, argv);
             continue;
         }
 
         vga_puts_color("  Unknown command: ", VGA_LIGHT_RED, VGA_BLACK);
-        vga_puts(cmd);
+        vga_puts(argv[0]);
         vga_puts("\n  Type 'help' for a list of commands.\n");
     }
 }
@@ -546,12 +750,13 @@ void proc2(void)
 void kernel_main(void)
 {
     pmm_init();
+    fs_init();
     vga_init();
     kb_init();
 
     for (int i = 0; i < MAX_PROCS; i++)
     {
-        proc_table[i].state = 0; /* PROC_UNUSED */
+        proc_table[i].state = 0;
     }
 
     current_proc = 0;
