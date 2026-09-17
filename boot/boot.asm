@@ -55,6 +55,27 @@ load_kernel:
 ; Enter Protected Mode
 ; ---------------------------------------------------------------------------
 enter_pm:
+    ; --- START BIOS E820 MEMORY MAP DETECTION ---
+detect_memory:
+    xor  ax, ax            ; 
+    mov  es, ax            ;
+    mov  di, 0x8004        ; Write entries starting at 0x8004
+    xor  ebx, ebx          ; EBX=0 to start iteration
+    xor  bp,  bp           ; BP = entry count
+.e820_loop:
+    mov  eax, 0xE820
+    mov  ecx, 24           ; 24-byte entry
+    mov  edx, 0x534D4150   ; Magic: 'SMAP'
+    int  0x15
+    jc   .e820_done        ; CF set = error or end of list
+    inc  bp
+    add  di, 24
+    test ebx, ebx
+    jnz  .e820_loop
+.e820_done:
+    mov  [0x8000], bp      ; Store count at 0x8000
+    ; --- END BIOS E820 MEMORY MAP DETECTION ---
+
     cli
     lgdt [gdt_descriptor]  ; Load the Global Descriptor Table
 
@@ -64,6 +85,7 @@ enter_pm:
 
     ; Far jump to flush the prefetch queue and load CS with code segment
     jmp  CODE_SEG:init_pm32
+
 
 ; ---------------------------------------------------------------------------
 ; 32-bit Protected Mode initialisation
