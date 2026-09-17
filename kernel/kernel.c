@@ -28,6 +28,7 @@
 #include "../include/thread.h"
 #include "../include/mutex.h"
 #include "../include/semaphore.h"
+#include "../include/pmm.h"
 
 #define ITERS 100000
 #define BUF_SIZE 8
@@ -156,7 +157,7 @@ void race_thread_a(void)
     for (int i = 0; i < ITERS; i++)
     {
         mutex_lock(&lock);
-        myglobal++; 
+        myglobal++;
         mutex_unlock(&lock);
     }
     vga_printf("A done. myglobal = %d\n", myglobal);
@@ -170,7 +171,7 @@ void race_thread_b(void)
     for (int i = 0; i < ITERS; i++)
     {
         mutex_lock(&lock);
-        myglobal++; 
+        myglobal++;
         mutex_unlock(&lock);
     }
     vga_printf("B done. myglobal = %d\n", myglobal);
@@ -183,15 +184,15 @@ void producer_thread(void)
     __asm__ volatile("sti");
     for (int i = 0; i < 20; i++)
     {
-        sem_wait(&sem_empty); 
-        sem_wait(&sem_mutex); 
+        sem_wait(&sem_empty);
+        sem_wait(&sem_mutex);
 
         buffer[in_idx] = i;
         vga_printf("Produced: %d\n", i);
         in_idx = (in_idx + 1) % BUF_SIZE;
 
-        sem_signal(&sem_mutex); 
-        sem_signal(&sem_full);  
+        sem_signal(&sem_mutex);
+        sem_signal(&sem_full);
     }
     while (true)
         ;
@@ -202,15 +203,15 @@ void consumer_thread(void)
     __asm__ volatile("sti");
     for (int i = 0; i < 20; i++)
     {
-        sem_wait(&sem_full);  
-        sem_wait(&sem_mutex); 
+        sem_wait(&sem_full);
+        sem_wait(&sem_mutex);
 
         int item = buffer[out_idx];
         vga_printf("Consumed: %d\n", item);
         out_idx = (out_idx + 1) % BUF_SIZE;
 
-        sem_signal(&sem_mutex); 
-        sem_signal(&sem_empty); 
+        sem_signal(&sem_mutex);
+        sem_signal(&sem_empty);
     }
     while (true)
         ;
@@ -234,8 +235,8 @@ static void cmd_help(void)
     vga_puts("  race    - [L10] Run race condition test\n");
     vga_puts("  race_mutex - [L10] Run mutex test\n");
     vga_puts("  prodcons - [L10] Run producer-consumer test\n");
-    vga_puts_color("\n  Milestones (to implement):\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  free    - [L11] Show free memory\n");
+    vga_puts_color("\n  Milestones (to implement):\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  ls      - [L12] List files\n");
     vga_puts("  cat     - [L12] Print file contents\n\n");
 }
@@ -283,20 +284,32 @@ static void cmd_ps(void)
     vga_printf("PID   NAME        STATE       TICKS\n");
     vga_puts("----  ----------  ----------  -----\n");
 
-    for (int i = 0; i < 16; i++) {
-    if (proc_table[i].state != PROC_UNUSED) {
-        const char* state_str = "UNKNOWN";
-        switch(proc_table[i].state) {
-            case PROC_READY:   state_str = "READY  "; break;
-            case PROC_RUNNING: state_str = "RUNNING"; break;
-            case PROC_BLOCKED: state_str = "BLOCKED"; break;
-            case PROC_ZOMBIE:  state_str = "ZOMBIE "; break; 
-            default: break;
+    for (int i = 0; i < 16; i++)
+    {
+        if (proc_table[i].state != PROC_UNUSED)
+        {
+            const char *state_str = "UNKNOWN";
+            switch (proc_table[i].state)
+            {
+            case PROC_READY:
+                state_str = "READY  ";
+                break;
+            case PROC_RUNNING:
+                state_str = "RUNNING";
+                break;
+            case PROC_BLOCKED:
+                state_str = "BLOCKED";
+                break;
+            case PROC_ZOMBIE:
+                state_str = "ZOMBIE ";
+                break;
+            default:
+                break;
+            }
+            vga_printf("%d    %s          %s\n",
+                       i, proc_table[i].name, state_str);
         }
-        vga_printf("%d    %s          %s\n", 
-                   i, proc_table[i].name, state_str);
     }
-}
 }
 
 static void cmd_race(void)
@@ -331,7 +344,7 @@ static void cmd_prodcons(void)
 
 static void cmd_kill(const char *cmd)
 {
-    
+
     if (cmd[4] != ' ' || cmd[5] == '\0')
     {
         vga_puts("Usage: kill <pid>\n");
@@ -353,8 +366,10 @@ static void cmd_kill(const char *cmd)
     }
 
     proc_table[pid].state = PROC_ZOMBIE;
-    for (int i = 0; i < 16; i++) {
-        if (thread_table[i].state != PROC_UNUSED && thread_table[i].pid == (uint32_t)pid) {
+    for (int i = 0; i < 16; i++)
+    {
+        if (thread_table[i].state != PROC_UNUSED && thread_table[i].pid == (uint32_t)pid)
+        {
             thread_table[i].state = PROC_ZOMBIE;
         }
     }
@@ -386,7 +401,7 @@ static void cmd_threads(void)
             case PROC_ZOMBIE:
                 state_str = "ZOMBIE ";
                 break;
-            default:      
+            default:
                 break;
             }
             vga_printf("%d    %d    %s          %s\n",
@@ -396,6 +411,16 @@ static void cmd_threads(void)
                        state_str);
         }
     }
+}
+
+static void cmd_meminfo(void)
+{
+
+    uint32_t free_kb = pmm_free_frames() * 4;
+    uint32_t total_kb = pmm_total_frames() * 4;
+    uint32_t used_kb = total_kb - free_kb;
+
+    vga_printf("Free: %d KB  Used: %d KB  Total: %d KB\n", free_kb, used_kb, total_kb);
 }
 
 /* ---------------------------------------------------------------------------
@@ -475,12 +500,13 @@ static void shell_run(void)
             cmd_threads();
             continue;
         }
+        if (k_strcmp(cmd, "meminfo") == 0 || k_strcmp(cmd, "free") == 0)
+        {
+            cmd_meminfo();
+            continue;
+        }
 
-        if (k_strcmp(cmd, "ps") == 0 ||
-            k_strcmp(cmd, "kill") == 0 ||
-            k_strcmp(cmd, "threads") == 0 ||
-            k_strcmp(cmd, "free") == 0 ||
-            k_strcmp(cmd, "ls") == 0 ||
+        if (k_strcmp(cmd, "ls") == 0 ||
             k_strcmp(cmd, "cat") == 0)
         {
             vga_puts_color("  [TODO] This command is not yet implemented.\n",
@@ -519,10 +545,10 @@ void proc2(void)
  * --------------------------------------------------------------------------*/
 void kernel_main(void)
 {
+    pmm_init();
     vga_init();
     kb_init();
 
-    
     for (int i = 0; i < MAX_PROCS; i++)
     {
         proc_table[i].state = 0; /* PROC_UNUSED */

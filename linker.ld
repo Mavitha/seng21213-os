@@ -35,4 +35,6 @@ SECTIONS {
         *(.eh_frame)      /* Exception frames – not needed in a bare kernel */
         *(.comment)
     }
+
+    _end = .;
 }
