@@ -9,12 +9,12 @@
 
 #include "../include/types.h"
 
-/* Maximum input line length */
+
 #define KB_BUF_SIZE 256
 
 void kb_init(void);
 
-/* Read one character (blocks until a key is pressed) */
+
 char kb_getchar(void);
 
 /* Read a line into buf (up to len-1 chars), NUL-terminated.
@@ -22,4 +22,4 @@ char kb_getchar(void);
  * Student TODO (Lecture 9): convert to interrupt-driven. */
 int  kb_readline(char *buf, int len);
 
-#endif /* KEYBOARD_H */
+#endif 

@@ -1,5 +1,8 @@
 #include "types.h"
 
+#ifndef PROCESS_H
+#define PROCESS_H
+
 #define MAX_PROCS   16
 #define STACK_SIZE  4096     
 
@@ -26,3 +29,5 @@ extern int   current_proc;
 
 pcb_t *proc_create(const char *name, void (*entry)(void));
 void   proc_exit(void);
+
+#endif

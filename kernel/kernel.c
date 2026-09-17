@@ -25,9 +25,16 @@
 #include "keyboard.h"
 #include "../include/types.h"
 #include "../include/process.h"
+#include "../include/thread.h"
+#include "../include/mutex.h"
+#include "../include/semaphore.h"
+
+#define ITERS 100000
+#define BUF_SIZE 8
 
 extern void pit_init(void);
-extern void idt_init(void); 
+extern void idt_init(void);
+extern tcb_t thread_table[16];
 /* ---------------------------------------------------------------------------
  * Forward declarations of shell commands
  * --------------------------------------------------------------------------*/
@@ -37,36 +44,70 @@ static void cmd_about(void);
 static void cmd_echo(const char *args);
 static void cmd_mem(void);
 static void cmd_ps(void);
+static volatile int myglobal = 0;
+static mutex_t lock;
+static int buffer[BUF_SIZE];
+static int in_idx = 0;
+static int out_idx = 0;
+static semaphore_t sem_empty, sem_full, sem_mutex;
 
 /* ---------------------------------------------------------------------------
  * Utility: minimal string helpers (no libc in a freestanding kernel!)
  * --------------------------------------------------------------------------*/
-static int k_strcmp(const char *a, const char *b) {
-    while (*a && (*a == *b)) { a++; b++; }
+static int k_strcmp(const char *a, const char *b)
+{
+    while (*a && (*a == *b))
+    {
+        a++;
+        b++;
+    }
     return (uint8_t)*a - (uint8_t)*b;
 }
 
-static int k_strncmp(const char *a, const char *b, size_t n) {
-    while (n-- && *a && (*a == *b)) { a++; b++; }
+static int k_strncmp(const char *a, const char *b, size_t n)
+{
+    while (n-- && *a && (*a == *b))
+    {
+        a++;
+        b++;
+    }
     return n == (size_t)-1 ? 0 : (uint8_t)*a - (uint8_t)*b;
 }
 
-static size_t k_strlen(const char *s) {
+static size_t k_strlen(const char *s)
+{
     size_t n = 0;
-    while (s[n]) n++;
+    while (s[n])
+        n++;
     return n;
 }
 
 /* Skip leading spaces */
-static const char *k_ltrim(const char *s) {
-    while (*s == ' ') s++;
+static const char *k_ltrim(const char *s)
+{
+    while (*s == ' ')
+        s++;
     return s;
+}
+
+static int k_atoi(const char *str)
+{
+    int res = 0;
+    for (int i = 0; str[i] != '\0'; ++i)
+    {
+        if (str[i] >= '0' && str[i] <= '9')
+        {
+            res = res * 10 + (str[i] - '0');
+        }
+    }
+    return res;
 }
 
 /* ---------------------------------------------------------------------------
  * Splash Screen
  * --------------------------------------------------------------------------*/
-static void print_splash(void) {
+static void print_splash(void)
+{
     vga_clear(VGA_BLACK);
 
     /* Top banner box */
@@ -109,10 +150,77 @@ static void print_splash(void) {
     vga_puts("\n");
 }
 
+void race_thread_a(void)
+{
+    __asm__ volatile("sti");
+    for (int i = 0; i < ITERS; i++)
+    {
+        mutex_lock(&lock);
+        myglobal++; 
+        mutex_unlock(&lock);
+    }
+    vga_printf("A done. myglobal = %d\n", myglobal);
+    while (true)
+        ;
+}
+
+void race_thread_b(void)
+{
+    __asm__ volatile("sti");
+    for (int i = 0; i < ITERS; i++)
+    {
+        mutex_lock(&lock);
+        myglobal++; 
+        mutex_unlock(&lock);
+    }
+    vga_printf("B done. myglobal = %d\n", myglobal);
+    while (true)
+        ;
+}
+
+void producer_thread(void)
+{
+    __asm__ volatile("sti");
+    for (int i = 0; i < 20; i++)
+    {
+        sem_wait(&sem_empty); 
+        sem_wait(&sem_mutex); 
+
+        buffer[in_idx] = i;
+        vga_printf("Produced: %d\n", i);
+        in_idx = (in_idx + 1) % BUF_SIZE;
+
+        sem_signal(&sem_mutex); 
+        sem_signal(&sem_full);  
+    }
+    while (true)
+        ;
+}
+
+void consumer_thread(void)
+{
+    __asm__ volatile("sti");
+    for (int i = 0; i < 20; i++)
+    {
+        sem_wait(&sem_full);  
+        sem_wait(&sem_mutex); 
+
+        int item = buffer[out_idx];
+        vga_printf("Consumed: %d\n", item);
+        out_idx = (out_idx + 1) % BUF_SIZE;
+
+        sem_signal(&sem_mutex); 
+        sem_signal(&sem_empty); 
+    }
+    while (true)
+        ;
+}
+
 /* ---------------------------------------------------------------------------
  * Shell command implementations
  * --------------------------------------------------------------------------*/
-static void cmd_help(void) {
+static void cmd_help(void)
+{
     vga_puts_color("\n  SENG21213-OS Shell Commands\n", VGA_YELLOW, VGA_BLACK);
     vga_puts("  -----------------------------------------\n");
     vga_puts("  help    - Show this help message\n");
@@ -120,20 +228,25 @@ static void cmd_help(void) {
     vga_puts("  about   - About this OS and course\n");
     vga_puts("  echo    - Echo text to screen\n");
     vga_puts("  mem     - Memory map (stub)\n");
-    vga_puts_color("\n  Milestones (to implement):\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  ps      - [L09] List processes\n");
     vga_puts("  kill    - [L09] Terminate a process\n");
     vga_puts("  threads - [L10] List kernel threads\n");
+    vga_puts("  race    - [L10] Run race condition test\n");
+    vga_puts("  race_mutex - [L10] Run mutex test\n");
+    vga_puts("  prodcons - [L10] Run producer-consumer test\n");
+    vga_puts_color("\n  Milestones (to implement):\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  free    - [L11] Show free memory\n");
     vga_puts("  ls      - [L12] List files\n");
     vga_puts("  cat     - [L12] Print file contents\n\n");
 }
 
-static void cmd_clear(void) {
+static void cmd_clear(void)
+{
     vga_clear(VGA_BLACK);
 }
 
-static void cmd_about(void) {
+static void cmd_about(void)
+{
     vga_puts_color("\n  About SENG21213-OS\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  ---------------------------------------------\n");
     vga_puts("  Architecture : x86 (i686), 32-bit Protected Mode\n");
@@ -144,14 +257,15 @@ static void cmd_about(void) {
     vga_puts("  Reference    : Stallings, OS: Internals & Design Principles\n\n");
 }
 
-static void cmd_echo(const char *args) {
+static void cmd_echo(const char *args)
+{
     vga_puts("  ");
     vga_puts(args);
     vga_puts("\n");
 }
 
-static void cmd_mem(void) {
-    /* Stage 0 stub - students implement the real PMM in Lecture 11 */
+static void cmd_mem(void)
+{
     vga_puts_color("\n  Memory Map (stub - implement PMM in Lecture 11)\n",
                    VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  ---------------------------------------------\n");
@@ -163,59 +277,212 @@ static void cmd_mem(void) {
                    VGA_YELLOW, VGA_BLACK);
 }
 
-static void cmd_ps(void) {
-    
+static void cmd_ps(void)
+{
+
     vga_printf("PID   NAME        STATE       TICKS\n");
     vga_puts("----  ----------  ----------  -----\n");
+
+    for (int i = 0; i < 16; i++) {
+    if (proc_table[i].state != PROC_UNUSED) {
+        const char* state_str = "UNKNOWN";
+        switch(proc_table[i].state) {
+            case PROC_READY:   state_str = "READY  "; break;
+            case PROC_RUNNING: state_str = "RUNNING"; break;
+            case PROC_BLOCKED: state_str = "BLOCKED"; break;
+            case PROC_ZOMBIE:  state_str = "ZOMBIE "; break; 
+            default: break;
+        }
+        vga_printf("%d    %s          %s\n", 
+                   i, proc_table[i].name, state_str);
+    }
+}
+}
+
+static void cmd_race(void)
+{
+    myglobal = 0;
+    vga_puts("Starting race condition test (Expected: 200000)...\n");
+    thread_create(1, "r_a", race_thread_a);
+    thread_create(1, "r_b", race_thread_b);
+}
+
+static void cmd_race_mutex(void)
+{
+    myglobal = 0;
+    mutex_init(&lock);
+    vga_puts("Starting mutex test (Expected: 200000)...\n");
+    thread_create(0, "m_a", race_thread_a);
+    thread_create(0, "m_b", race_thread_b);
+}
+
+static void cmd_prodcons(void)
+{
+    vga_puts("Starting Producer-Consumer test...\n");
+    sem_init(&sem_empty, BUF_SIZE);
+    sem_init(&sem_full, 0);
+    sem_init(&sem_mutex, 1);
+    in_idx = 0;
+    out_idx = 0;
+
+    thread_create(0, "prod", producer_thread);
+    thread_create(0, "cons", consumer_thread);
+}
+
+static void cmd_kill(const char *cmd)
+{
     
-    for (int i = 0; i < MAX_PROCS; i++) {
-        if (proc_table[i].state == PROC_UNUSED) continue;
-        
-        const char *states[] = {"UNUSED", "READY", "RUNNING", "BLOCKED", "ZOMBIE"};
-        
-        
-        vga_printf("%d     %s        %s     %d\n",
-                   proc_table[i].pid, 
-                   proc_table[i].name,
-                   states[proc_table[i].state], 
-                   proc_table[i].ticks);
+    if (cmd[4] != ' ' || cmd[5] == '\0')
+    {
+        vga_puts("Usage: kill <pid>\n");
+        return;
+    }
+
+    int pid = k_atoi(&cmd[5]);
+
+    if (pid < 0 || pid >= MAX_PROCS)
+    {
+        vga_puts("Error: Invalid PID.\n");
+        return;
+    }
+
+    if (proc_table[pid].state == PROC_UNUSED)
+    {
+        vga_puts("Error: Process is already dead or unused.\n");
+        return;
+    }
+
+    proc_table[pid].state = PROC_ZOMBIE;
+    for (int i = 0; i < 16; i++) {
+        if (thread_table[i].state != PROC_UNUSED && thread_table[i].pid == (uint32_t)pid) {
+            thread_table[i].state = PROC_ZOMBIE;
+        }
+    }
+
+    vga_printf("Process %d and its threads killed.\n", pid);
+}
+
+static void cmd_threads(void)
+{
+    vga_puts("TID  PID  NAME          STATE\n");
+    vga_puts("---- ---- ------------- -------\n");
+
+    for (int i = 0; i < 16; i++)
+    {
+        if (thread_table[i].state != PROC_UNUSED)
+        {
+            const char *state_str = "UNKNOWN";
+            switch (thread_table[i].state)
+            {
+            case PROC_READY:
+                state_str = "READY  ";
+                break;
+            case PROC_RUNNING:
+                state_str = "RUNNING";
+                break;
+            case PROC_BLOCKED:
+                state_str = "BLOCKED";
+                break;
+            case PROC_ZOMBIE:
+                state_str = "ZOMBIE ";
+                break;
+            default:      
+                break;
+            }
+            vga_printf("%d    %d    %s          %s\n",
+                       thread_table[i].tid,
+                       thread_table[i].pid,
+                       thread_table[i].name,
+                       state_str);
+        }
     }
 }
 
 /* ---------------------------------------------------------------------------
  * Shell process
  * --------------------------------------------------------------------------*/
-static char  shell_buf[256];
-static char  prompt[] = "\n  ksh> ";
+static char shell_buf[256];
+static char prompt[] = "\n  ksh> ";
 
-static void shell_run(void) {
+static void shell_run(void)
+{
     vga_puts_color("\n  Kernel Shell ready. Type 'help' for commands.\n",
                    VGA_LIGHT_GREEN, VGA_BLACK);
 
-    while (true) {
+    while (true)
+    {
         vga_puts_color(prompt, VGA_LIGHT_GREEN, VGA_BLACK);
         kb_readline(shell_buf, sizeof(shell_buf));
 
         const char *cmd = k_ltrim(shell_buf);
-        if (k_strlen(cmd) == 0) continue;
+        if (k_strlen(cmd) == 0)
+            continue;
 
-        if (k_strcmp(cmd, "help")  == 0) { cmd_help();  continue; }
-        if (k_strcmp(cmd, "clear") == 0) { cmd_clear(); continue; }
-        if (k_strcmp(cmd, "about") == 0) { cmd_about(); continue; }
-        if (k_strcmp(cmd, "mem")   == 0) { cmd_mem();   continue; }
-        if (k_strcmp(cmd, "ps")    == 0) { cmd_ps();    continue; }
-
-        if (k_strncmp(cmd, "echo ", 5) == 0) {
-            cmd_echo(k_ltrim(cmd + 5));
+        if (k_strcmp(cmd, "help") == 0)
+        {
+            cmd_help();
+            continue;
+        }
+        if (k_strcmp(cmd, "clear") == 0)
+        {
+            cmd_clear();
+            continue;
+        }
+        if (k_strcmp(cmd, "about") == 0)
+        {
+            cmd_about();
+            continue;
+        }
+        if (k_strcmp(cmd, "mem") == 0)
+        {
+            cmd_mem();
+            continue;
+        }
+        if (k_strcmp(cmd, "ps") == 0)
+        {
+            cmd_ps();
+            continue;
+        }
+        if (k_strcmp(cmd, "race") == 0)
+        {
+            cmd_race();
+            continue;
+        }
+        if (k_strcmp(cmd, "race_mutex") == 0)
+        {
+            cmd_race_mutex();
+            continue;
+        }
+        if (k_strcmp(cmd, "prodcons") == 0)
+        {
+            cmd_prodcons();
             continue;
         }
 
-        if (k_strcmp(cmd, "ps")      == 0 ||
-            k_strcmp(cmd, "kill")    == 0 ||
+        if (k_strncmp(cmd, "echo ", 5) == 0)
+        {
+            cmd_echo(k_ltrim(cmd + 5));
+            continue;
+        }
+        if (cmd[0] == 'k' && cmd[1] == 'i' && cmd[2] == 'l' && cmd[3] == 'l' && cmd[4] == ' ')
+        {
+            cmd_kill(cmd);
+            continue;
+        }
+
+        if (k_strcmp(cmd, "threads") == 0)
+        {
+            cmd_threads();
+            continue;
+        }
+
+        if (k_strcmp(cmd, "ps") == 0 ||
+            k_strcmp(cmd, "kill") == 0 ||
             k_strcmp(cmd, "threads") == 0 ||
-            k_strcmp(cmd, "free")    == 0 ||
-            k_strcmp(cmd, "ls")      == 0 ||
-            k_strcmp(cmd, "cat")     == 0) {
+            k_strcmp(cmd, "free") == 0 ||
+            k_strcmp(cmd, "ls") == 0 ||
+            k_strcmp(cmd, "cat") == 0)
+        {
             vga_puts_color("  [TODO] This command is not yet implemented.\n",
                            VGA_YELLOW, VGA_BLACK);
             vga_puts("  Implement it as part of your lecture assignment.\n");
@@ -231,29 +498,33 @@ static void shell_run(void) {
 /* ---------------------------------------------------------------------------
  * Test Processes for Stage 1
  * --------------------------------------------------------------------------*/
-void proc1(void) {
-    __asm__ volatile("sti"); 
-    while (true) {
-        
+void proc1(void)
+{
+    __asm__ volatile("sti");
+    while (true)
+    {
     }
 }
 
-void proc2(void) {
-    __asm__ volatile("sti"); 
-    while (true) {
-        
+void proc2(void)
+{
+    __asm__ volatile("sti");
+    while (true)
+    {
     }
 }
 
 /* ---------------------------------------------------------------------------
  * Kernel entry point - called from kernel_entry.asm
  * --------------------------------------------------------------------------*/
-void kernel_main(void) {
+void kernel_main(void)
+{
     vga_init();
     kb_init();
 
-    /* 0. Initialize the process table */
-    for (int i = 0; i < MAX_PROCS; i++) {
+    
+    for (int i = 0; i < MAX_PROCS; i++)
+    {
         proc_table[i].state = 0; /* PROC_UNUSED */
     }
 
@@ -261,14 +532,12 @@ void kernel_main(void) {
     proc_table[0].pid = 0;
     proc_table[0].state = PROC_RUNNING;
     proc_table[0].ticks = 0;
-    
-    
+
     proc_table[0].name[0] = 'i';
     proc_table[0].name[1] = 'd';
     proc_table[0].name[2] = 'l';
     proc_table[0].name[3] = 'e';
     proc_table[0].name[4] = '\0';
-
 
     proc_create("proc1", proc1);
     proc_create("proc2", proc2);
@@ -278,5 +547,4 @@ void kernel_main(void) {
 
     print_splash();
     shell_run();
-
 }

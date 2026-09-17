@@ -12,12 +12,10 @@
 
 #include "../include/types.h"
 
-/* Screen dimensions */
 #define VGA_COLS   80
 #define VGA_ROWS   25
 #define VGA_ADDR   ((volatile uint16_t *)0xB8000)
 
-/* VGA colour constants */
 typedef enum {
     VGA_BLACK         = 0,
     VGA_BLUE          = 1,
@@ -37,10 +35,8 @@ typedef enum {
     VGA_WHITE         = 15,
 } vga_color_t;
 
-/* Build an attribute byte from foreground + background colours */
 #define VGA_ATTR(fg, bg)  ((uint8_t)(((bg) << 4) | (fg)))
 
-/* Public API ----------------------------------------------------------------*/
 void vga_init(void);
 void vga_clear(vga_color_t bg);
 void vga_set_color(vga_color_t fg, vga_color_t bg);
@@ -50,7 +46,8 @@ void vga_puts_color(const char *str, vga_color_t fg, vga_color_t bg);
 void vga_set_cursor(int row, int col);
 void vga_printf(const char *fmt, ...);
 
-/* Student extension hook – implement in a later lecture */
 void vga_draw_box(int row, int col, int height, int width, vga_color_t color);
+void vga_scroll_up(void);
+void vga_scroll_down(void);
 
-#endif /* VGA_H */
+#endif 
